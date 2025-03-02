@@ -1,0 +1,19 @@
+[Unit]
+Description=Apache Airflow v2.10.5
+After=docker.service
+Requires=docker.service
+
+[Service]
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/home/ec2-user/busco-airflow
+Environment="ECR_REPOSITORY_URI={{ ECR_REPOSITORY_URI }}"
+ExecStart=/usr/local/bin/docker-compose -f docker-compose.prod.yml up
+ExecStop=/usr/local/bin/docker-compose -f docker-compose.prod.yml down
+TimeoutStartSec=0
+Restart=on-failure
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Install]
+WantedBy=multi-user.target

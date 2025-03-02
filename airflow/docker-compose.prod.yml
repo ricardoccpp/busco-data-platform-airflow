@@ -1,0 +1,140 @@
+version: '3.8'
+
+x-airflow-common: &airflow-common
+  image: ${ECR_REPOSITORY_URI:-data-platform-prod-airflow:latest}
+  env_file:
+    - .env
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+    AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-}
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+    AIRFLOW__CORE__PARALLELISM: 64
+    AIRFLOW__CORE__MAX_ACTIVE_TAKS_PER_DAG: 32
+    AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: 16
+    AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+    AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+    AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+  # Nota: Não mapeamos volumes, usamos os arquivos copiados durante o build
+  # Em produção, usamos o usuário airflow interno (que foi configurado com o UID correto)
+  user: "airflow"
+  restart: always
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "100m"
+      max-file: "3"
+  depends_on:
+    redis:
+      condition: service_healthy
+
+services:
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 30s
+      retries: 50
+    volumes:
+      - redis-data:/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  airflow-worker:
+    <<: *airflow-common
+    command: celery worker
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  airflow-flower:
+    <<: *airflow-common
+    command: celery flower
+    ports:
+      - "5555:5555"
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        # Verificar se o banco já está inicializado
+        echo "Verificando estado do banco de dados..."
+        if airflow db check > /dev/null 2>&1; then
+          echo "Banco de dados já inicializado, executando upgrade..."
+          airflow db migrate
+        else
+          echo "Inicializando banco de dados..."
+          airflow db init
+        fi
+        
+        # Criar usuário admin se necessário
+        if [[ -n "${_AIRFLOW_WWW_USER_USERNAME}" && -n "${_AIRFLOW_WWW_USER_PASSWORD}" ]]; then
+          echo "Verificando usuário admin..."
+          if ! airflow users list | grep -q "${_AIRFLOW_WWW_USER_USERNAME}"; then
+            echo "Criando usuário admin: ${_AIRFLOW_WWW_USER_USERNAME}"
+            airflow users create \
+              --username "${_AIRFLOW_WWW_USER_USERNAME}" \
+              --password "${_AIRFLOW_WWW_USER_PASSWORD}" \
+              --firstname Admin \
+              --lastname User \
+              --role Admin \
+              --email admin@example.com
+          else
+            echo "Usuário admin já existe."
+          fi
+        fi
+        
+        echo "Inicialização concluída!"
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_UPGRADE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
+      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
+    user: "0:0"
+    restart: "no"
+
+volumes:
+  redis-data:
