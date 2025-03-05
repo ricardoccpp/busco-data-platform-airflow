@@ -10,14 +10,9 @@ Exemplo de uso:
 
 Variáveis de ambiente:
     AIRFLOW_HOME: Diretório base do Airflow (opcional)
-    AWS_REGION: Região da AWS
+    AWS_DEFAULT_REGION: Região da AWS
     AWS_ACCESS_KEY_ID: Access Key da AWS
     AWS_SECRET_ACCESS_KEY: Secret Key da AWS
-    POSTGRES_HOST: Host do PostgreSQL
-    POSTGRES_PORT: Porta do PostgreSQL
-    POSTGRES_USER: Usuário do PostgreSQL
-    POSTGRES_PASSWORD: Senha do PostgreSQL
-    POSTGRES_DB: Nome do banco de dados PostgreSQL
 """
 import json
 import os
@@ -42,38 +37,29 @@ def setup_connections() -> None:
         {
             'conn_id': 'aws_default',
             'conn_type': 'aws',
+            'login': get_env('AWS_ACCESS_KEY_ID', ''),
+            'password': get_env('AWS_SECRET_ACCESS_KEY', ''),
             'extra': {
-                'region_name': get_env('AWS_REGION', 'us-east-1'),
-                'aws_access_key_id': get_env('AWS_ACCESS_KEY_ID', ''),
-                'aws_secret_access_key': get_env('AWS_SECRET_ACCESS_KEY', '')
+                'region_name': get_env('AWS_DEFAULT_REGION', 'us-east-1')
             }
-        },
-        {
-            'conn_id': 'postgres_default',
-            'conn_type': 'postgres',
-            'host': get_env('POSTGRES_HOST', 'localhost'),
-            'port': int(get_env('POSTGRES_PORT', '5432')),
-            'login': get_env('POSTGRES_USER', 'airflow'),
-            'password': get_env('POSTGRES_PASSWORD', 'airflow'),
-            'schema': get_env('POSTGRES_DB', 'airflow')
         },
         {
             'conn_id': 'ecs_default',
             'conn_type': 'aws',
+            'login': get_env('AWS_ACCESS_KEY_ID', ''),
+            'password': get_env('AWS_SECRET_ACCESS_KEY', ''),
             'extra': {
-                'region_name': get_env('AWS_REGION', 'us-east-1'),
-                'aws_access_key_id': get_env('AWS_ACCESS_KEY_ID', ''),
-                'aws_secret_access_key': get_env('AWS_SECRET_ACCESS_KEY', ''),
+                'region_name': get_env('AWS_DEFAULT_REGION', 'us-east-1'),
                 'service_name': 'ecs'
             }
         },
         {
             'conn_id': 's3_default',
             'conn_type': 'aws',
+            'login': get_env('AWS_ACCESS_KEY_ID', ''),
+            'password': get_env('AWS_SECRET_ACCESS_KEY', ''),
             'extra': {
-                'region_name': get_env('AWS_REGION', 'us-east-1'),
-                'aws_access_key_id': get_env('AWS_ACCESS_KEY_ID', ''),
-                'aws_secret_access_key': get_env('AWS_SECRET_ACCESS_KEY', ''),
+                'region_name': get_env('AWS_DEFAULT_REGION', 'us-east-1'),
                 'service_name': 's3'
             }
         }
@@ -85,7 +71,6 @@ def setup_connections() -> None:
         
         # Construir o comando de conexão add
         cmd = ['airflow', 'connections', 'add']
-        cmd.extend(['--conn-id', conn_id])
         cmd.extend(['--conn-type', conn['conn_type']])
         
         if 'host' in conn:
@@ -106,6 +91,8 @@ def setup_connections() -> None:
         if 'extra' in conn:
             extra_json = json.dumps(conn['extra'])
             cmd.extend(['--conn-extra', extra_json])
+
+        cmd.extend([conn_id])
         
         # Verificar se a conexão já existe e removê-la
         try:

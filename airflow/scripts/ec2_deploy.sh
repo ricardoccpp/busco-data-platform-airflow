@@ -85,11 +85,15 @@ ssh -i "$PRIVATE_KEY" "$EC2_USER@$EC2_HOST" "which aws" > /dev/null || {
 
 # Criar diretório do projeto na instância EC2
 echo "Criando diretório do projeto na instância EC2..."
-ssh -i "$PRIVATE_KEY" "$EC2_USER@$EC2_HOST" "mkdir -p $PROJECT_DIR"
+ssh -i "$PRIVATE_KEY" "$EC2_USER@$EC2_HOST" "mkdir -p $PROJECT_DIR ./nginx/certs ./nginx/vhost.d ./nginx/html ./nginx/conf.d"
 
 # Copiar arquivos do projeto para a instância EC2
 echo "Copiando arquivos do projeto para a instância EC2..."
-rsync -avz --exclude 'logs' --exclude '.git' --exclude '__pycache__' --exclude '*.pyc' -e "ssh -i $PRIVATE_KEY" ./ "$EC2_USER@$EC2_HOST:$PROJECT_DIR/"
+rsync -avz --exclude 'logs' --exclude '.git' --exclude '__pycache__' --exclude '*.pyc' --exclude 'Dockerfile' --exclude 'docker-compose.*' --exclude '.env*' -e "ssh -i $PRIVATE_KEY" ./ "$EC2_USER@$EC2_HOST:$PROJECT_DIR/"
+
+# Criar diretório do projeto na instância EC2
+echo "Criando diretório de logs na instância EC2..."
+ssh -i "$PRIVATE_KEY" "$EC2_USER@$EC2_HOST" "mkdir -p $PROJECT_DIR/logs"
 
 # Configurar permissões nos scripts
 echo "Configurando permissões nos scripts..."
@@ -98,6 +102,10 @@ ssh -i "$PRIVATE_KEY" "$EC2_USER@$EC2_HOST" "chmod +x $PROJECT_DIR/scripts/*.sh 
 # Configurar o arquivo .env na instância remota
 echo "Configurando arquivo .env.prod para .env..."
 scp -i "$PRIVATE_KEY" .env.prod "$EC2_USER@$EC2_HOST:$PROJECT_DIR/.env"
+
+# Configurar o arquivo docker-compose na instância remota
+echo "Configurando arquivo docker-compose..."
+scp -i "$PRIVATE_KEY" docker-compose.prod.yml "$EC2_USER@$EC2_HOST:$PROJECT_DIR/docker-compose.yml"
 
 # Login no ECR
 echo "Fazendo login no ECR..."
@@ -112,19 +120,19 @@ ssh -i "$PRIVATE_KEY" "$EC2_USER@$EC2_HOST" "cd $PROJECT_DIR && ./scripts/setup_
 echo "Instalando o serviço systemd para o Airflow..."
 ssh -i "$PRIVATE_KEY" "$EC2_USER@$EC2_HOST" "sudo cp $PROJECT_DIR/deployment/aws/systemd/airflow.service /etc/systemd/system/ && sudo systemctl daemon-reload"
 
-# Iniciar os serviços usando docker-compose.prod.yml
+# Iniciar os serviços usando docker-compose.yml
 echo "Iniciando os serviços do Airflow..."
-ssh -i "$PRIVATE_KEY" "$EC2_USER@$EC2_HOST" "cd $PROJECT_DIR && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d"
+ssh -i "$PRIVATE_KEY" "$EC2_USER@$EC2_HOST" "cd $PROJECT_DIR && docker compose down && docker compose pull && docker compose up -d"
 
 echo "=== Deploy concluído com sucesso! ==="
 echo "O Airflow está acessível em: http://$EC2_HOST:8080"
 echo "Usuário: $_AIRFLOW_WWW_USER_USERNAME (conforme definido no .env)"
 echo ""
 echo "Para iniciar/parar os serviços manualmente:"
-echo "ssh -i $PRIVATE_KEY $EC2_USER@$EC2_HOST 'cd $PROJECT_DIR && docker compose -f docker-compose.prod.yml start|stop'"
+echo "ssh -i $PRIVATE_KEY $EC2_USER@$EC2_HOST 'cd $PROJECT_DIR && docker compose start|stop'"
 echo ""
 echo "Para iniciar automaticamente na inicialização do sistema:"
 echo "ssh -i $PRIVATE_KEY $EC2_USER@$EC2_HOST 'sudo systemctl enable airflow && sudo systemctl start airflow'"
 echo ""
 echo "Para verificar os logs:"
-echo "ssh -i $PRIVATE_KEY $EC2_USER@$EC2_HOST 'cd $PROJECT_DIR && docker compose -f docker-compose.prod.yml logs -f'"
+echo "ssh -i $PRIVATE_KEY $EC2_USER@$EC2_HOST 'cd $PROJECT_DIR && docker compose logs -f'"

@@ -16,12 +16,22 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__PARALLELISM: 64
     AIRFLOW__CORE__MAX_ACTIVE_TAKS_PER_DAG: 32
     AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: 16
+    AIRFLOW__WEBSERVER__WARN_DEPLOYMENT_EXPOSURE: 'false'
+    AIRFLOW__LOGGING__REMOTE_LOGGING: 'true'
+    AIRFLOW__LOGGING__DELETE_LOCAL_LOGS: 'true'
+    AIRFLOW__LOGGING__REMOTE_LOG_CONN_ID: ${AWS_CONN_ID:-aws_default}
+    AIRFLOW__LOGGING__REMOTE_BASE_LOG_FOLDER: ${AWS_S3_LOGS_PATH}
     AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
     AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
     AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
-  # Nota: Não mapeamos volumes, usamos os arquivos copiados durante o build
-  # Em produção, usamos o usuário airflow interno (que foi configurado com o UID correto)
-  user: "airflow"
+    # Configurar a URL base para o seu subdomínio
+    AIRFLOW__WEBSERVER__BASE_URL: 'https://data-platform-airflow.busco.digital'
+    # Configuração opcional para segurança
+    AIRFLOW__WEBSERVER__ENABLE_PROXY_FIX: 'True'
+  # Nota: Em produção, somente a pasta logs é mapeada, as outras são copiadas na imagem
+  volumes:
+    - ./logs:/opt/airflow/logs
+  user: "root"
   restart: always
   logging:
     driver: "json-file"
@@ -33,6 +43,35 @@ x-airflow-common: &airflow-common
       condition: service_healthy
 
 services:
+  # Proxy Nginx com suporte automático a HTTPS
+  nginx-proxy:
+    image: jwilder/nginx-proxy:alpine
+    container_name: nginx-proxy  # Nome explícito do contêiner
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - ./nginx/certs:/etc/nginx/certs
+      - ./nginx/vhost.d:/etc/nginx/vhost.d
+      - ./nginx/html:/usr/share/nginx/html
+      - ./nginx/conf.d:/etc/nginx/conf.d
+    restart: always
+    
+  # Companheiro Let's Encrypt para obtenção/renovação de certificados
+  # letsencrypt:
+  #   image: jrcs/letsencrypt-nginx-proxy-companion
+  #   container_name: letsencrypt
+  #   environment:
+  #     NGINX_PROXY_CONTAINER: nginx-proxy  # Nome do contêiner nginx-proxy
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #     - ./nginx/certs:/etc/nginx/certs
+  #     - ./nginx/vhost.d:/etc/nginx/vhost.d
+  #     - ./nginx/html:/usr/share/nginx/html
+  #   restart: always
+  #   depends_on:
+  #     - nginx-proxy
   redis:
     image: redis:latest
     ports:
@@ -54,8 +93,15 @@ services:
   airflow-webserver:
     <<: *airflow-common
     command: webserver
-    ports:
-      - "8080:8080"
+    environment:
+      <<: *airflow-common-env
+      # Variáveis para o sistema de proxy/Let's Encrypt
+      VIRTUAL_HOST: data-platform-airflow.busco.digital
+      VIRTUAL_PORT: 8080
+      # LETSENCRYPT_HOST: data-platform-airflow.busco.digital
+      # LETSENCRYPT_EMAIL: ricardo.tanaka-partner@backlgrs.com.br
+    # ports:
+    #   - "8080:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
       interval: 30s
@@ -66,6 +112,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
 
   airflow-scheduler:
     <<: *airflow-common
@@ -74,6 +122,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
 
   airflow-worker:
     <<: *airflow-common
@@ -82,6 +132,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
 
   airflow-flower:
     <<: *airflow-common
@@ -92,6 +144,20 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+
+  airflow-triggerer:
+    <<: *airflow-common
+    command: triggerer
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
 
   airflow-init:
     <<: *airflow-common
@@ -125,7 +191,11 @@ services:
             echo "Usuário admin já existe."
           fi
         fi
-        
+
+        # Criar conexões iniciais
+        echo "Criando conexões iniciais"
+        python scripts/setup_connections.py
+
         echo "Inicialização concluída!"
     environment:
       <<: *airflow-common-env
