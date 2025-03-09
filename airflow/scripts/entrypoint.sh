@@ -10,6 +10,12 @@ if [ -f /opt/airflow/.env ]; then
   export $(grep -v '^#' /opt/airflow/.env | grep -v '^\s*$' | xargs)
 fi
 
+if ! whoami &> /dev/null; then
+  if [ -w /etc/passwd ]; then
+    echo "${USER_NAME:-airflow}:x:$(id -u):$(id -g):${USER_NAME:-airflow} user:${HOME}:/sbin/nologin" >> /etc/passwd
+  fi
+fi
+
 # Função para aguardar a disponibilidade do PostgreSQL
 wait_for_postgres() {
   echo "Verificando conexão com PostgreSQL..."

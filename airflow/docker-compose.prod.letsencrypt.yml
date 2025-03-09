@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  # Companheiro Let's Encrypt para obtenção/renovação de certificados
+  letsencrypt:
+    image: jrcs/letsencrypt-nginx-proxy-companion
+    container_name: letsencrypt
+    environment:
+      NGINX_PROXY_CONTAINER: nginx-proxy  # Nome do contêiner nginx-proxy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./nginx/certs:/etc/nginx/certs
+      - ./nginx/vhost.d:/etc/nginx/vhost.d
+      - ./nginx/html:/usr/share/nginx/html

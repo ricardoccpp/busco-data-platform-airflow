@@ -31,7 +31,7 @@ x-airflow-common: &airflow-common
   # Nota: Em produção, somente a pasta logs é mapeada, as outras são copiadas na imagem
   volumes:
     - ./logs:/opt/airflow/logs
-  user: "root"
+  user: "airflow"
   restart: always
   logging:
     driver: "json-file"
@@ -98,8 +98,8 @@ services:
       # Variáveis para o sistema de proxy/Let's Encrypt
       VIRTUAL_HOST: data-platform-airflow.busco.digital
       VIRTUAL_PORT: 8080
-      # LETSENCRYPT_HOST: data-platform-airflow.busco.digital
-      # LETSENCRYPT_EMAIL: ricardo.tanaka-partner@backlgrs.com.br
+      LETSENCRYPT_HOST: data-platform-airflow.busco.digital
+      LETSENCRYPT_EMAIL: ricardo.tanaka-partner@backlgrs.com.br
     # ports:
     #   - "8080:8080"
     healthcheck:

@@ -95,6 +95,10 @@ rsync -avz --exclude 'logs' --exclude '.git' --exclude '__pycache__' --exclude '
 echo "Criando diretório de logs na instância EC2..."
 ssh -i "$PRIVATE_KEY" "$EC2_USER@$EC2_HOST" "mkdir -p $PROJECT_DIR/logs"
 
+# Configurar permissões na pasta de logs
+echo "Configurando permissões na pasta de logs..."
+ssh -i "$PRIVATE_KEY" "$EC2_USER@$EC2_HOST" "sudo chmod -R 777 $PROJECT_DIR/logs"
+
 # Configurar permissões nos scripts
 echo "Configurando permissões nos scripts..."
 ssh -i "$PRIVATE_KEY" "$EC2_USER@$EC2_HOST" "chmod +x $PROJECT_DIR/scripts/*.sh $PROJECT_DIR/deployment/aws/*.sh"
@@ -106,6 +110,7 @@ scp -i "$PRIVATE_KEY" .env.prod "$EC2_USER@$EC2_HOST:$PROJECT_DIR/.env"
 # Configurar o arquivo docker-compose na instância remota
 echo "Configurando arquivo docker-compose..."
 scp -i "$PRIVATE_KEY" docker-compose.prod.yml "$EC2_USER@$EC2_HOST:$PROJECT_DIR/docker-compose.yml"
+scp -i "$PRIVATE_KEY" docker-compose.prod.letsencrypt.yml "$EC2_USER@$EC2_HOST:$PROJECT_DIR/docker-compose.letsencrypt.yml"
 
 # Login no ECR
 echo "Fazendo login no ECR..."
@@ -123,6 +128,15 @@ ssh -i "$PRIVATE_KEY" "$EC2_USER@$EC2_HOST" "sudo cp $PROJECT_DIR/deployment/aws
 # Iniciar os serviços usando docker-compose.yml
 echo "Iniciando os serviços do Airflow..."
 ssh -i "$PRIVATE_KEY" "$EC2_USER@$EC2_HOST" "cd $PROJECT_DIR && docker compose down && docker compose pull && docker compose up -d"
+
+# Verificando certificado ssl
+echo "Verificando certificado ssl..."
+ssh -i "$PRIVATE_KEY" "$EC2_USER@$EC2_HOST" "cd $PROJECT_DIR && ./deployment/aws/check_ssl.sh"
+
+# Adicionar a verificação de certificado SSL ao crontab (execução semanal às segundas-feiras às 3:00 AM)
+echo "Configurando crontab para verificação semanal de certificado SSL..."
+ssh -i "$PRIVATE_KEY" "$EC2_USER@$EC2_HOST" "crontab -l 2>/dev/null | grep -v 'check_ssl.sh' | { cat; echo '0 3 * * 1 cd $PROJECT_DIR && ./deployment/aws/check_ssl.sh >> $PROJECT_DIR/logs/ssl_check.log 2>&1'; } | crontab -"
+echo "Entrada adicionada ao crontab com sucesso!"
 
 echo "=== Deploy concluído com sucesso! ==="
 echo "O Airflow está acessível em: http://$EC2_HOST:8080"
