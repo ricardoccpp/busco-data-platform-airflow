@@ -21,9 +21,9 @@ echo "Repositório: $ECR_REPOSITORY_NAME"
 echo "Região: $AWS_REGION"
 
 # Verifica se a imagem local existe
-docker image inspect busco-datalake-processor:latest > /dev/null 2>&1 || {
-  echo "Erro: Imagem local 'busco-datalake-processor:latest' não encontrada"
-  echo "Execute primeiro o build: docker build -t busco-datalake-processor ."
+docker image inspect data-platform-prod-processor:latest > /dev/null 2>&1 || {
+  echo "Erro: Imagem local 'data-platform-prod-processor:latest' não encontrada"
+  echo "Execute primeiro o build: docker build -t data-platform-prod-processor ."
   exit 1
 }
 
@@ -43,8 +43,8 @@ echo "Adicionando tags à imagem:"
 echo "- $ECR_REPOSITORY_URI:latest"
 echo "- $ECR_REPOSITORY_URI:$IMAGE_TAG"
 
-docker tag busco-datalake-processor:latest $ECR_REPOSITORY_URI:latest
-docker tag busco-datalake-processor:latest $ECR_REPOSITORY_URI:$IMAGE_TAG
+docker tag data-platform-prod-processor:latest $ECR_REPOSITORY_URI:latest
+docker tag data-platform-prod-processor:latest $ECR_REPOSITORY_URI:$IMAGE_TAG
 
 # Envia imagem para o ECR
 echo "Enviando imagem para ECR..."

@@ -76,8 +76,8 @@ echo "Configurando permissões nos scripts..."
 chmod +x scripts/*.sh 2>/dev/null || echo "Aviso: Não foi possível alterar permissões de scripts/*.sh"
 [ -d "deployment/aws" ] && chmod +x deployment/aws/*.sh 2>/dev/null || echo "Aviso: Não foi possível alterar permissões de deployment/aws/*.sh"
 
-# Construir a imagem Docker para desenvolvimento
-echo "Construindo a imagem Docker para desenvolvimento..."
+# Construir a imagem Docker
+echo "Construindo a imagem Docker..."
 docker build -t data-platform-prod-airflow:latest -f Dockerfile .
 
 # Verificar se a build foi bem-sucedida
