@@ -89,7 +89,7 @@ if [ $? -eq 0 ]; then
   if [ -n "$ECR_REPOSITORY_URI" ]; then
     echo ""
     echo "Para enviar a imagem para o ECR, execute:"
-    echo "./deployment/aws/ecr_push.sh"
+    echo "./scripts/ecr_push.sh"
   fi
   
   echo ""
