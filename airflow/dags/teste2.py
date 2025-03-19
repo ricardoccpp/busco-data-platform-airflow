@@ -95,11 +95,11 @@ with DAG(
                         },
                         {
                             "name": "AWS_ACCESS_KEY_ID",
-                            "value": "AKIAWX2IFI2JCEOAJTPS"
+                            "value": ""
                         },
                         {
                             "name": "AWS_SECRET_ACCESS_KEY",
-                            "value": "octakOytMEMrX0I5kuF2vvRVzrzQwATSvLZDTKKj"
+                            "value": ""
                         },
                         {
                             "name": "S3_BRONZE_BUCKET_NAME",
