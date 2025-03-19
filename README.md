@@ -1,19 +1,13 @@
 # Busco Data Platform Pipeline
 
-Plataforma de processamento de dados completa, incluindo orquestração de pipelines com Apache Airflow (2.10.5) e processadores de dados usando DuckDB para transformações no datalake da Busco.
+Plataforma completa de processamento de dados baseada em Apache Airflow (2.10.5) para orquestração de pipelines com ECS para processamento de dados no datalake da Busco, implementando um padrão moderno de arquitetura em três camadas.
 
 ## Arquitetura
 
-O projeto implementa uma arquitetura moderna de datalake com três camadas:
-
-* **Bronze**: Dados brutos ingeridos dos sistemas de origem
-* **Silver**: Dados limpos, normalizados e validados
-* **Gold**: Dados agregados e modelados para consumo
-
 ```
 ┌─────────────────┐                ┌───────────────────┐
-│    Airflow      │                │  ECS Processors   │
-│   (Orquestrador)│◄──Invoca────►  │     (DuckDB)      │
+│    Airflow      │                │  ECS Tasks        │
+│   (Orquestrador)│◄──Invoca────►  │   (DuckDB)        │
 └────────┬────────┘                └─────────┬─────────┘
          │                                    │
          │                                    ▼
@@ -37,171 +31,213 @@ O projeto implementa uma arquitetura moderna de datalake com três camadas:
 └────────────────┘               └────────────────────┘
 ```
 
-## Componentes do Sistema
+### Camadas do Data Lake
 
-### 1. Airflow
+- **Bronze**: Dados brutos ingeridos dos sistemas de origem
+- **Silver**: Dados limpos, normalizados e validados 
+- **Gold**: Dados agregados e modelados para consumo por aplicações de BI e analytics
 
-* **Função**: Orquestrador de pipelines de dados
-* **Versão**: Apache Airflow 2.10.5 com Python 3.9
-* **Infraestrutura**: 
-  * **Desenvolvimento**: Contêineres Docker com PostgreSQL 16.3-alpine local
-  * **Produção**: Contêineres Docker em EC2 com RDS PostgreSQL
-* **Configurações**:
-  * **Desenvolvimento** (`Dockerfile` + `docker-compose.yml`): Monta volumes locais
-  * **Produção** (`Dockerfile.prod` + `docker-compose.prod.yml`): Copia arquivos na imagem
+## Componentes Principais
 
-### 2. Processadores DuckDB
+### Apache Airflow (2.10.5)
 
-* **Função**: Processamento eficiente de dados nas camadas do datalake
-* **Infraestrutura**: Contêineres ECS executados sob demanda (invocados pelo Airflow)
-* **Organização**:
-  * Processadores separados por camada (bronze_to_silver, silver_to_gold)
-  * Componentes modulares para transformações específicas
-  * Adaptadores para diferentes fontes de dados
+**Função**: Orquestrador de pipelines de dados responsável por agendar, monitorar e gerenciar fluxos de trabalho.
+
+**Configurações**:
+- **Desenvolvimento**: Contêineres Docker com PostgreSQL 16.3-alpine local
+- **Produção**: Contêineres Docker em EC2 com RDS PostgreSQL
+
+### ECS Tasks com DuckDB
+
+**Função**: Processamento eficiente de dados entre as camadas do datalake.
+
+**Infraestrutura**: Tarefas ECS executadas sob demanda, invocadas pelo Airflow usando o operador `EcsRunTaskOperator`.
+
+**Processamento**:
+- Transformações de bronze para silver
+- Transformações de silver para gold
+- Processamento baseado em eventos S3
 
 ## Estrutura do Projeto
 
 ```
 busco-data-platform-pipeline/
-├── airflow/                     # Projeto Airflow containerizado
-│   ├── Dockerfile               # Imagem de dev baseada em apache/airflow:2.10.5-python3.9
-│   ├── Dockerfile.prod          # Imagem de prod com arquivos copiados
-│   ├── docker-compose.yml       # Configuração para dev com PostgreSQL local
-│   ├── docker-compose.prod.yml  # Configuração para produção com RDS
-│   ├── dags/                    # DAGs para orquestração dos pipelines
-│   └── scripts/                 # Scripts de utilitários e deploy
-│       ├── local_build.sh           # Script para construir imagem de desenvolvimento 
-│       └── local_build_prod.sh      # Script para construir imagem de produção
-│
-└── processors/                  # Processadores para o datalake no ECS
-    ├── Dockerfile               # Imagem Docker para processamento com DuckDB
-    ├── src/
-    │   ├── common/              # Componentes compartilhados
-    │   ├── bronze_to_silver/    # Processadores para camada Silver
-    │   ├── silver_to_gold/      # Processadores para camada Gold
-    │   └── ...                  # Componentes de utilitários e modelos
-    └── deployment/              # Scripts para deployment
-        └── ecr_push.sh          # Script para enviar imagem para ECR
+├── Dockerfile                   # Imagem base do Airflow (dev/prod)
+├── .env.example                 # Modelo para configurações de ambiente
+├── .gitignore                   # Arquivos ignorados pelo Git
+├── README.md                    # Documentação do projeto
+├── config/                      # Configurações do Airflow
+│   ├── airflow.cfg             # Configuração principal
+│   └── webserver_config.py     # Configuração da interface web
+├── dags/                        # DAGs para orquestração
+│   ├── teste.py                # DAG de exemplo
+│   └── teste2.py               # DAG com ECS task
+├── deployment/                  # Scripts de deployment
+│   └── aws/                     # Scripts específicos da AWS
+│       ├── check_ssl.sh        # Verificação de certificados SSL
+│       └── systemd/            # Configurações do serviço systemd
+├── docker-compose.yml           # Configuração Docker para desenvolvimento
+├── docker-compose.prod.yml      # Configuração Docker para produção
+├── docker-compose.prod.letsencrypt.yml # Configuração para certificados SSL
+└── scripts/                     # Scripts utilitários
+    ├── ec2_deploy.sh           # Deploy para instância EC2
+    ├── ecr_push.sh             # Envio de imagem para ECR
+    ├── entrypoint.sh           # Ponto de entrada dos contêineres
+    ├── local_build.sh          # Build da imagem local
+    ├── set_local_dir_permission.sh # Ajuste de permissões
+    ├── setup_connections.py    # Configuração de conexões do Airflow
+    ├── setup_systemd.sh        # Configuração do serviço systemd
+    └── wait-for-it.sh          # Utilitário para verificar disponibilidade de serviços
 ```
 
 ## Estrutura do Data Lake
 
 ```
 s3://busco-data-lake/
-  ├── bronze/
-  │   ├── gsheets/
-  │   ├── integracao/
-  │   ├── postgres/
-  │   │   ├── database1/
-  │   │   │   ├── schema1/
-  │   │   │   └── schema2/
-  │   │   └── database2/
-  │   └── redshift/
-  ├── silver/
-  │   ├── gsheets/
-  │   ├── integracao/
-  │   ├── postgres/
-  │   └── redshift/
-  └── gold/
-      ├── analytics/
-      ├── dashboards/
-      └── reports/
+  ├── bronze/      # Dados brutos ingeridos
+  ├── silver/      # Dados limpos e validados
+  └── gold/        # Dados modelados para consumo
 ```
 
-## Pré-requisitos
+## Guias Rápidos
 
-* Docker e Docker Compose
-* AWS CLI configurado
-* Python 3.9+
-* Acesso para recursos AWS (EC2, ECR, ECS, S3, Glue)
-* Task definitions para ECS já criadas via Terraform
+### Pré-requisitos
 
-## Guias de Início Rápido
+- Docker e Docker Compose
+- AWS CLI configurado
+- Python 3.9+
+- Acesso aos recursos AWS (EC2, ECR, ECS, S3, Glue)
+- Task definitions para ECS já criadas via Terraform
 
-### Configuração Inicial do .env
+### Configuração Inicial
 
-Para iniciar, crie um arquivo `.env` com as variáveis necessárias:
+1. Clone o repositório e configure o arquivo `.env`:
 
 ```bash
-# Na pasta airflow
+# Clone o repositório
+git clone https://github.com/seu-usuario/busco-data-platform-pipeline.git
+cd busco-data-platform-pipeline
+
+# Configure o ambiente
 cp .env.example .env
-# Edite o arquivo .env conforme necessário
+# Edite o arquivo .env com suas configurações
 ```
 
-### Desenvolvimento com Airflow Local
+### Ambiente de Desenvolvimento Local
 
 ```bash
-# Navegar para a pasta do Airflow
-cd airflow
-
-# Build da imagem de desenvolvimento
+# Construir a imagem de desenvolvimento
 ./scripts/local_build.sh
 
-# Iniciar o Airflow com volumes locais mapeados
+# Iniciar o Airflow localmente
 docker-compose up -d
 
-# Acessar a interface web
+# Acessar a interface do Airflow
 # http://localhost:8080 (usuário/senha: admin/admin)
-```
-
-### Build da Imagem de Produção
-
-```bash
-# Na pasta airflow
-./scripts/local_build_prod.sh
-
-# Testar localmente (opcional)
-docker-compose -f docker-compose.prod.yml up -d
 ```
 
 ### Deploy para Produção
 
-```bash
-# Enviar imagem para ECR
-cd airflow
-./deployment/aws/ecr_push.sh prod  # Usar 'dev' para imagem de desenvolvimento
-
-# Deploy na instância EC2
-./scripts/ec2_deploy.sh <ec2-host> <key-path>
-```
-
-### Processadores DuckDB
+1. Build e envio da imagem para ECR:
 
 ```bash
-# Build e envio da imagem para ECR
-cd processors
-docker build -t busco-datalake-processor .
-./deployment/ecr_push.sh
+# Construir imagem de produção
+./scripts/local_build.sh
 
-# Os processadores serão executados pelo Airflow como tarefas ECS
+# Enviar para o ECR
+./scripts/ecr_push.sh prod
 ```
 
-## Estrutura de Desenvolvimento
+2. Deploy para a instância EC2:
 
-### Diretórios Principais
-
-* **dags/**: Adicione seus DAGs de Airflow aqui
-* **plugins/**: Extensões para o Airflow
-* **config/**: Arquivos de configuração
-* **processors/src/**: Código fonte dos processadores de dados
-
-### Fluxo de Trabalho
-
-1. Desenvolva DAGs e plugins localmente com mapeamento de volumes
-2. Teste localmente usando a imagem de desenvolvimento
-3. Construa a imagem de produção para deploy
-4. Envie para o repositório ECR
-5. Implante na instância EC2
-
-## Observações sobre Permissões
-
-Quando trabalhar com volumes mapeados no Docker, use o ID do seu usuário local para evitar problemas de permissão:
-
+```bash
+# Realizar deploy no EC2
+./scripts/ec2_deploy.sh <ec2-host> <path-to-ssh-key.pem>
 ```
-# No arquivo .env
+
+3. O script irá configurar:
+   - Docker e Docker Compose na instância EC2
+   - Certificado SSL via Let's Encrypt
+   - Serviço Systemd para inicialização automática
+   - Crontab para renovação do certificado SSL
+
+## Fluxo de Trabalho de Desenvolvimento
+
+1. **Desenvolvimento Local**:
+   - Desenvolva DAGs e plugins no ambiente local
+   - Teste usando a imagem de desenvolvimento
+   - Verifique logs e resultados via interface web
+
+2. **Testes Integrados**:
+   - Valide a execução de tarefas ECS com dados de teste
+   - Verifique transformações entre camadas do datalake
+
+3. **Deploy para Produção**:
+   - Construa a imagem de produção
+   - Envie para o repositório ECR
+   - Realize deploy na instância EC2
+
+## Workflow de Ingestão/Processamento
+
+1. **Ingestão para Bronze**: Dados brutos são armazenados na camada Bronze
+2. **Evento S3**: Um evento de criação/modificação de arquivo no S3 dispara uma DAG
+3. **Processamento Bronze para Silver**: DAG aciona tarefa ECS que processa os dados
+4. **Processamento Silver para Gold**: Dados processados são transformados para consumo
+5. **Disponibilização**: Dados ficam disponíveis para consulta via Athena/Glue ou ferramentas de BI
+
+## Segurança e Configurações
+
+### Segredos e Variáveis de Ambiente
+
+Os seguintes parâmetros devem ser configurados no arquivo `.env`:
+
+- Credenciais PostgreSQL
+- Chave Fernet para criptografia do Airflow
+- Credenciais AWS (Access Key, Secret Key)
+- Detalhes do ECS (clusters, task definitions)
+- URIs de repositórios ECR
+
+### Permissões de Arquivos
+
+Para evitar problemas de permissão ao trabalhar com volumes Docker mapeados:
+
+```bash
+# Configurar o ID de usuário no arquivo .env
 AIRFLOW_UID=$(id -u)  # Seu ID de usuário local
+
+# Ajustar permissões em diretórios locais
+./scripts/set_local_dir_permission.sh
 ```
 
-## Licença
+## Infraestrutura AWS
 
-Este projeto é propriedade da Busco.
+- **ECR**: Repositório para imagens Docker do Airflow
+- **EC2**: Instância para execução do Airflow
+- **ECS**: Execução de tarefas de processamento de dados
+- **S3**: Armazenamento dos dados nas camadas do datalake
+- **RDS** (Produção): Banco de dados PostgreSQL para o Airflow
+- **Glue/Athena**: Descoberta e consulta de dados
+
+## Monitoramento
+
+- **Airflow UI**: Monitoramento de DAGs e tarefas (http://localhost:8080)
+- **Flower**: Dashboard para monitoramento de workers Celery (http://localhost:5555)
+- **CloudWatch**: Logs e métricas de recursos AWS
+- **ECS Task Logs**: Logs das tarefas de processamento
+
+## Serviços Docker Compose
+
+### Desenvolvimento (docker-compose.yml)
+- **postgres**: Banco de dados PostgreSQL
+- **redis**: Backend para Celery
+- **airflow-webserver**: Interface web
+- **airflow-scheduler**: Scheduler do Airflow
+- **airflow-worker**: Worker Celery
+- **airflow-triggerer**: Triggerer para deferrable operators
+- **airflow-init**: Inicialização do banco e usuários
+- **flower**: Dashboard de monitoramento Celery
+
+### Produção (docker-compose.prod.yml)
+Inclui todos os serviços acima, mais:
+- **nginx-proxy**: Proxy reverso com suporte a HTTPS
+- **letsencrypt**: Serviço para obtenção/renovação de certificados SSL
